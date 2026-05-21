@@ -1,0 +1,19 @@
+{
+  "name": "lexiform",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm build:dictionary && pnpm -r build",
+    "build:dictionary": "pnpm --filter @lexiform/engine build:dictionary",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @lexiform/db generate",
+    "db:migrate": "pnpm --filter @lexiform/db migrate",
+    "db:push": "pnpm --filter @lexiform/db push"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

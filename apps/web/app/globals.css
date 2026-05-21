@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FFF5EB;
+  --surface: #FFFFFF;
+  --ink: #1A2332;
+  --ink-soft: #4A5568;
+  --muted: #A0AEC0;
+
+  /* Tropical palette */
+  --accent: #FF6B6B;
+  --accent-soft: #FFE8E8;
+  --coral: #FF6B6B;
+  --teal: #4ECDC4;
+  --mango: #FFE66D;
+  --papaya: #FF9F43;
+  --lagoon: #2DD4BF;
+
+  --success: #22C55E;
+  --warning: #FBBF24;
+  --danger: #EF4444;
+  --gem: #A855F7;
+  --gem-soft: #F3E8FF;
+
+  --gradient-tropical: linear-gradient(135deg, #FF6B6B 0%, #FFE66D 35%, #4ECDC4 70%, #A855F7 100%);
+  --gradient-sunset: linear-gradient(135deg, #FF9F43 0%, #FF6B6B 50%, #FF85A2 100%);
+  --gradient-ocean: linear-gradient(135deg, #4ECDC4 0%, #2DD4BF 50%, #38BDF8 100%);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-ink antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(255, 107, 107, 0.15), transparent),
+      radial-gradient(ellipse 60% 40% at 80% 0%, rgba(78, 205, 196, 0.15), transparent),
+      radial-gradient(ellipse 50% 30% at 50% 100%, rgba(255, 230, 109, 0.12), transparent);
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-tropical {
+    background: var(--gradient-tropical);
+  }
+
+  .bg-gradient-sunset {
+    background: var(--gradient-sunset);
+  }
+
+  .bg-gradient-ocean {
+    background: var(--gradient-ocean);
+  }
+
+  .glass-bubble {
+    @apply bg-white/80 backdrop-blur-xl border border-white/60 shadow-bubble;
+  }
+
+  .bouncy-hover {
+    @apply transition-transform duration-200 hover:scale-105 active:scale-95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
