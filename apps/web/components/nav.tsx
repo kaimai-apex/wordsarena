@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Sparkles, Swords, Trophy, User, Waves } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
+import { api, type UserProfile } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
 const links = [
@@ -19,8 +19,11 @@ export function Nav() {
   const pathname = usePathname();
   const { data } = useQuery({
     queryKey: ['me'],
-    queryFn: () => api<{ user: { username: string } | null }>('/auth/me'),
+    queryFn: () => api<{ user: UserProfile | null }>('/auth/me'),
+    retry: false,
   });
+
+  const user = data?.user;
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/40 bg-surface/70 backdrop-blur-xl">
@@ -54,11 +57,25 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2">
-          {data?.user ? (
-            <Link href={`/u/${data.user.username}`}>
-              <Button variant="ghost" size="sm">
-                <User className="mr-1.5 h-4 w-4" />
-                {data.user.username}
+          {user ? (
+            <Link href={`/u/${user.username}`}>
+              <Button variant="ghost" size="sm" className="gap-2 pl-1">
+                {user.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatarUrl}
+                    alt=""
+                    className="h-7 w-7 rounded-full border border-teal/20 object-cover"
+                  />
+                ) : (
+                  <User className="h-4 w-4" />
+                )}
+                <span>{user.username}</span>
+                {user.hasSupabaseAccount && user.ratings[0] && (
+                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
+                    {user.ratings.find((r) => r.timeControl === 'blitz')?.rating ?? user.ratings[0].rating}
+                  </span>
+                )}
               </Button>
             </Link>
           ) : (

@@ -14,9 +14,12 @@ import {
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  supabaseUserId: uuid('supabase_user_id').unique(),
   username: text('username').notNull().unique(),
   email: text('email').unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
+  avatarUrl: text('avatar_url'),
+  authProvider: text('auth_provider'), // 'google' | 'email' | 'anonymous'
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   isAnonymous: boolean('is_anonymous').default(false).notNull(),
   isBanned: boolean('is_banned').default(false).notNull(),

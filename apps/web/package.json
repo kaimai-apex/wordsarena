@@ -13,6 +13,8 @@
     "@lexiform/api": "workspace:*",
     "@lexiform/engine": "workspace:*",
     "@lexiform/shared": "workspace:*",
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.49.1",
     "hono": "^4.6.14",
     "@tanstack/react-query": "^5.62.8",
     "class-variance-authority": "^0.7.1",
