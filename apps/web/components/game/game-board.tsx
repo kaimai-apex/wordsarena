@@ -34,6 +34,7 @@ import { RotateCcw } from 'lucide-react';
 import { displayWord } from '@/lib/display-word';
 
 const CLAIM_FLASH_MS = 320;
+const DRAG_THRESHOLD_PX = 12;
 const EMPTY_HOVER = new Set<string>();
 
 interface GameBoardProps {
@@ -58,10 +59,27 @@ type DragSession = {
   anchorOffsetCol: number;
 };
 
+type ClickSelection = {
+  tileId: string;
+  anchorOffsetRow: number;
+  anchorOffsetCol: number;
+};
+
+type PendingPointer = {
+  tileId: string;
+  tile: Tile;
+  anchorOffsetRow: number;
+  anchorOffsetCol: number;
+  startX: number;
+  startY: number;
+};
+
 const BoardCellGrid = memo(function BoardCellGrid({
   hoverCells,
+  onCellPointerUp,
 }: {
   hoverCells: ReadonlySet<string>;
+  onCellPointerUp: (e: React.PointerEvent, row: number, col: number) => void;
 }) {
   return (
     <div
@@ -80,9 +98,10 @@ const BoardCellGrid = memo(function BoardCellGrid({
           <div
             key={key}
             className={cn(
-              'rounded-sm border border-dotted border-white/20 transition-colors duration-100',
+              'pointer-events-auto rounded-sm border border-dotted border-white/20 transition-colors duration-100',
               highlighted && 'border-teal/80 bg-teal/35',
             )}
+            onPointerUp={(e) => onCellPointerUp(e, row, col)}
           />
         );
       })}
@@ -93,22 +112,29 @@ const BoardCellGrid = memo(function BoardCellGrid({
 const BoardTileSlot = memo(function BoardTileSlot({
   tile,
   hidden,
+  selected,
   flashLetters,
   onPointerDown,
+  onPointerUp,
 }: {
   tile: Tile;
   hidden: boolean;
+  selected: boolean;
   flashLetters?: boolean[];
   onPointerDown: (e: React.PointerEvent, tileId: string) => void;
+  onPointerUp: (e: React.PointerEvent, tileId: string) => void;
 }) {
   return (
     <div
+      data-tile-id={tile.id}
       style={tileGridStyle(tile)}
       className={cn(
         'relative min-h-0 min-w-0',
-        hidden ? 'z-0' : 'z-10 cursor-grab',
+        hidden ? 'z-0 pointer-events-none' : 'z-10 cursor-grab pointer-events-auto',
+        selected && !hidden && 'z-20 rounded-sm ring-2 ring-teal ring-offset-1 ring-offset-[#5B8FD4]',
       )}
       onPointerDown={(e) => onPointerDown(e, tile.id)}
+      onPointerUp={(e) => onPointerUp(e, tile.id)}
     >
       <TilePiece tile={tile} size="fill" dragging={hidden} flashLetters={flashLetters} />
     </div>
@@ -129,6 +155,7 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
   const [moves, setMoves] = useState<Move[]>([]);
   const [dictionary, setDictionary] = useState<WordDictionary | null>(null);
   const [draggingTileId, setDraggingTileId] = useState<string | null>(null);
+  const [clickSelection, setClickSelection] = useState<ClickSelection | null>(null);
   const [hoverCells, setHoverCells] = useState<ReadonlySet<string>>(EMPTY_HOVER);
   const [lastClaims, setLastClaims] = useState<{ word: string; points: number }[]>([]);
   const [flashCells, setFlashCells] = useState<ReadonlySet<string>>(EMPTY_HOVER);
@@ -138,6 +165,10 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
   const boardRef = useRef<HTMLDivElement>(null);
   const floatRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragSession | null>(null);
+  const pendingRef = useRef<PendingPointer | null>(null);
+  const pendingTileElRef = useRef<HTMLElement | null>(null);
+  const clickSelectionRef = useRef<ClickSelection | null>(null);
+  const didDragRef = useRef(false);
   const metricsRef = useRef<BoardMetrics | null>(null);
   const hoverKeyRef = useRef<string | null>(null);
   const pendingPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -150,6 +181,7 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
   stateRef.current = state;
   movesRef.current = moves;
   onGameOverRef.current = onGameOver;
+  clickSelectionRef.current = clickSelection;
 
   useEffect(() => setMounted(true), []);
 
@@ -255,20 +287,33 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
     [dictionary, playerId, canDropAt],
   );
 
-  const computeHoverCells = useCallback(
-    (session: DragSession, cell: { row: number; col: number } | null): ReadonlySet<string> => {
+  const computeHoverCellsForTile = useCallback(
+    (
+      tileId: string,
+      tile: Tile,
+      anchorOffsetRow: number,
+      anchorOffsetCol: number,
+      cell: { row: number; col: number } | null,
+    ): ReadonlySet<string> => {
       if (!cell) return EMPTY_HOVER;
-      const placement = placementFromGrab(
-        cell.row,
-        cell.col,
-        session.anchorOffsetRow,
-        session.anchorOffsetCol,
-      );
-      if (!canDropAt(placement.row, placement.col, session.tileId)) return EMPTY_HOVER;
-      const cells = getTileCells({ ...session.tile, position: placement });
+      const placement = placementFromGrab(cell.row, cell.col, anchorOffsetRow, anchorOffsetCol);
+      if (!canDropAt(placement.row, placement.col, tileId)) return EMPTY_HOVER;
+      const cells = getTileCells({ ...tile, position: placement });
       return new Set(cells.map((c) => `${c.row},${c.col}`));
     },
     [canDropAt],
+  );
+
+  const computeHoverCells = useCallback(
+    (session: DragSession, cell: { row: number; col: number } | null): ReadonlySet<string> =>
+      computeHoverCellsForTile(
+        session.tileId,
+        session.tile,
+        session.anchorOffsetRow,
+        session.anchorOffsetCol,
+        cell,
+      ),
+    [computeHoverCellsForTile],
   );
 
   const syncFloatPosition = useCallback((clientX: number, clientY: number) => {
@@ -330,55 +375,209 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
     finishDrag(e.clientX, e.clientY);
   };
 
-  const onPointerDown = useCallback(
+  const activateDragFromPending = useCallback(
+    (
+      pending: PendingPointer,
+      clientX: number,
+      clientY: number,
+      tileEl: HTMLElement,
+      pointerId: number,
+    ) => {
+      if (!pending.tile.position) return;
+
+      const rect = tileEl.getBoundingClientRect();
+      const session: DragSession = {
+        tileId: pending.tileId,
+        tile: pending.tile,
+        grabOffsetX: clientX - rect.left,
+        grabOffsetY: clientY - rect.top,
+        pointerX: clientX,
+        pointerY: clientY,
+        width: rect.width,
+        height: rect.height,
+        originRow: pending.tile.position.row,
+        originCol: pending.tile.position.col,
+        anchorOffsetRow: pending.anchorOffsetRow,
+        anchorOffsetCol: pending.anchorOffsetCol,
+      };
+
+      dragRef.current = session;
+      pendingRef.current = null;
+      pendingTileElRef.current = null;
+      didDragRef.current = true;
+      setClickSelection(null);
+      setDraggingTileId(pending.tileId);
+      syncFloatPosition(clientX, clientY);
+      updateHoverFromPointer(clientX, clientY);
+      tileEl.setPointerCapture(pointerId);
+
+      window.addEventListener('pointerup', endDragRef.current);
+      window.addEventListener('pointercancel', endDragRef.current);
+    },
+    [syncFloatPosition, updateHoverFromPointer],
+  );
+
+  const onTilePointerDown = useCallback(
     (e: React.PointerEvent, tileId: string) => {
       if (stateRef.current.isOver || draggingTileId) return;
-    const tile = stateRef.current.board.tiles[tileId];
-    const boardEl = boardRef.current;
-    if (!tile?.position || !boardEl) return;
+      const tile = stateRef.current.board.tiles[tileId];
+      const boardEl = boardRef.current;
+      if (!tile?.position || !boardEl) return;
 
-    e.preventDefault();
-    e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      e.stopPropagation();
 
-    metricsRef.current = readBoardMetrics(boardEl);
-    const tileEl = e.currentTarget as HTMLElement;
-    const rect = tileEl.getBoundingClientRect();
-    const { anchorOffsetRow, anchorOffsetCol } = getGrabAnchorOffset(
-      tile,
-      e.clientX,
-      e.clientY,
-      boardEl,
-    );
+      metricsRef.current = readBoardMetrics(boardEl);
+      const { anchorOffsetRow, anchorOffsetCol } = getGrabAnchorOffset(
+        tile,
+        e.clientX,
+        e.clientY,
+        boardEl,
+      );
 
-    const session: DragSession = {
-      tileId,
-      tile,
-      grabOffsetX: e.clientX - rect.left,
-      grabOffsetY: e.clientY - rect.top,
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      width: rect.width,
-      height: rect.height,
-      originRow: tile.position.row,
-      originCol: tile.position.col,
-      anchorOffsetRow,
-      anchorOffsetCol,
-    };
+      pendingRef.current = {
+        tileId,
+        tile,
+        anchorOffsetRow,
+        anchorOffsetCol,
+        startX: e.clientX,
+        startY: e.clientY,
+      };
+      pendingTileElRef.current = e.currentTarget as HTMLElement;
+    },
+    [draggingTileId],
+  );
 
-    dragRef.current = session;
-    setDraggingTileId(tileId);
-    syncFloatPosition(e.clientX, e.clientY);
-    updateHoverFromPointer(e.clientX, e.clientY);
+  const onTilePointerUp = useCallback(
+    (e: React.PointerEvent, tileId: string) => {
+      if (dragRef.current) {
+        finishDrag(e.clientX, e.clientY);
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch {
+          /* already released */
+        }
+        return;
+      }
 
-    window.addEventListener('pointerup', endDragRef.current);
-    window.addEventListener('pointercancel', endDragRef.current);
-  }, [draggingTileId, syncFloatPosition, updateHoverFromPointer]);
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (!pending || pending.tileId !== tileId) return;
+
+      const moved = Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY);
+      if (moved >= DRAG_THRESHOLD_PX || didDragRef.current) {
+        didDragRef.current = false;
+        return;
+      }
+
+      e.stopPropagation();
+      setClickSelection((prev) =>
+        prev?.tileId === tileId
+          ? null
+          : {
+              tileId,
+              anchorOffsetRow: pending.anchorOffsetRow,
+              anchorOffsetCol: pending.anchorOffsetCol,
+            },
+      );
+      hoverKeyRef.current = null;
+      setHoverCells(EMPTY_HOVER);
+    },
+    [finishDrag],
+  );
+
+  const tryPlaceAtCell = useCallback(
+    (row: number, col: number) => {
+      const selection = clickSelectionRef.current;
+      if (!selection) return;
+
+      const placement = placementFromGrab(
+        row,
+        col,
+        selection.anchorOffsetRow,
+        selection.anchorOffsetCol,
+      );
+      if (!canDropAt(placement.row, placement.col, selection.tileId)) return;
+
+      commitDrop(placement.row, placement.col, selection.tileId);
+      setClickSelection(null);
+      hoverKeyRef.current = null;
+      setHoverCells(EMPTY_HOVER);
+    },
+    [canDropAt, commitDrop],
+  );
+
+  const onCellPointerUp = useCallback(
+    (e: React.PointerEvent, row: number, col: number) => {
+      if (dragRef.current || didDragRef.current) {
+        didDragRef.current = false;
+        return;
+      }
+      if (!clickSelectionRef.current) return;
+      e.stopPropagation();
+      tryPlaceAtCell(row, col);
+    },
+    [tryPlaceAtCell],
+  );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
+      const pending = pendingRef.current;
+      if (pending && !dragRef.current) {
+        const moved = Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY);
+        if (moved >= DRAG_THRESHOLD_PX) {
+          const tileEl = pendingTileElRef.current;
+          if (tileEl) {
+            activateDragFromPending(pending, e.clientX, e.clientY, tileEl, e.pointerId);
+          }
+        } else if (clickSelection?.tileId === pending.tileId) {
+          const metrics = metricsRef.current;
+          if (metrics) {
+            const cell = cellFromClient(e.clientX, e.clientY, metrics);
+            const key = cell ? `${cell.row},${cell.col}` : '';
+            if (key !== hoverKeyRef.current) {
+              hoverKeyRef.current = key;
+              setHoverCells(
+                computeHoverCellsForTile(
+                  pending.tileId,
+                  pending.tile,
+                  pending.anchorOffsetRow,
+                  pending.anchorOffsetCol,
+                  cell,
+                ),
+              );
+            }
+          }
+        }
+        return;
+      }
+
       const session = dragRef.current;
-      if (!session) return;
+      if (!session) {
+        if (clickSelection) {
+          const metrics = metricsRef.current ?? (boardRef.current ? readBoardMetrics(boardRef.current) : null);
+          if (metrics) {
+            metricsRef.current = metrics;
+            const cell = cellFromClient(e.clientX, e.clientY, metrics);
+            const key = cell ? `${cell.row},${cell.col}` : '';
+            if (key !== hoverKeyRef.current) {
+              hoverKeyRef.current = key;
+              const tile = stateRef.current.board.tiles[clickSelection.tileId];
+              if (tile) {
+                setHoverCells(
+                  computeHoverCellsForTile(
+                    clickSelection.tileId,
+                    tile,
+                    clickSelection.anchorOffsetRow,
+                    clickSelection.anchorOffsetCol,
+                    cell,
+                  ),
+                );
+              }
+            }
+          }
+        }
+        return;
+      }
 
       session.pointerX = e.clientX;
       session.pointerY = e.clientY;
@@ -392,17 +591,19 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
         if (point) updateHoverFromPointer(point.x, point.y);
       });
     },
-    [syncFloatPosition, updateHoverFromPointer],
+    [
+      clickSelection,
+      activateDragFromPending,
+      syncFloatPosition,
+      updateHoverFromPointer,
+      computeHoverCellsForTile,
+    ],
   );
 
-  const onPointerUp = useCallback(
+  const onBoardPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      finishDrag(e.clientX, e.clientY);
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* already released */
-      }
+      if (dragRef.current) finishDrag(e.clientX, e.clientY);
+      pendingRef.current = null;
     },
     [finishDrag],
   );
@@ -420,7 +621,10 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
     );
     setMoves([]);
     dragRef.current = null;
+    pendingRef.current = null;
+    pendingTileElRef.current = null;
     setDraggingTileId(null);
+    setClickSelection(null);
     hoverKeyRef.current = null;
     setHoverCells(EMPTY_HOVER);
     setLastClaims([]);
@@ -500,15 +704,15 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
       >
         <div
           ref={boardRef}
-          className="relative aspect-square w-full touch-none"
+          className="relative aspect-square w-full touch-none select-none"
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerUp={onBoardPointerUp}
+          onPointerCancel={onBoardPointerUp}
         >
-          <BoardCellGrid hoverCells={hoverCells} />
+          <BoardCellGrid hoverCells={hoverCells} onCellPointerUp={onCellPointerUp} />
 
           <div
-            className="absolute inset-0 grid gap-0.5"
+            className="pointer-events-none absolute inset-0 grid gap-0.5"
             style={{
               gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
               gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
@@ -519,8 +723,10 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
                 key={tile.id}
                 tile={tile}
                 hidden={hiddenTileId === tile.id}
+                selected={clickSelection?.tileId === tile.id}
                 flashLetters={flashLettersForTile(tile)}
-                onPointerDown={onPointerDown}
+                onPointerDown={onTilePointerDown}
+                onPointerUp={onTilePointerUp}
               />
             ))}
           </div>
@@ -550,7 +756,7 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
       </AnimatePresence>
 
       <p className="max-w-md text-center text-sm text-ink-soft">
-        Drag tiles to line up words — valid words score automatically.
+        Drag tiles, or tap a tile (teal ring) then tap an empty cell to move — valid words score automatically.
       </p>
 
       {words.length > 0 && (
