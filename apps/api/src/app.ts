@@ -205,7 +205,7 @@ app.post('/games/solo/:id/finalize', async (c) => {
 
   const wordCount = finalState.wordsClaimedByPlayer[user.id]?.length ?? 0;
   const maxCombo = Math.max(
-    ...Object.values(finalState.comboState).map((combo) => combo.multiplier),
+    ...Object.values(finalState.comboState).map((combo) => (combo as { multiplier: number }).multiplier),
     1,
   );
 

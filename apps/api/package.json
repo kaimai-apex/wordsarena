@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prebuild": "pnpm --filter @lexiform/db --filter @lexiform/engine --filter @lexiform/shared --filter @lexiform/rating build",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
