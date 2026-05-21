@@ -2,6 +2,7 @@ const path = require('path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: path.join(__dirname, '../../'),
   transpilePackages: [
     '@lexiform/api',
     '@lexiform/db',
@@ -10,6 +11,7 @@ const nextConfig = {
     '@lexiform/shared',
   ],
   experimental: {
+    serverComponentsExternalPackages: ['postgres', 'drizzle-orm'],
     outputFileTracingIncludes: {
       '/api': [path.join(__dirname, '../../packages/engine/data/**/*')],
     },

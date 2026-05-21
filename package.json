@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm build:dictionary && pnpm -r build",
+    "build:vercel": "pnpm build:dictionary && pnpm --filter \"@lexiform/web...\" build",
     "build:dictionary": "pnpm --filter @lexiform/engine build:dictionary",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",

@@ -34,7 +34,7 @@ pnpm dev
 The Next.js app (`apps/web`) includes the Hono API as serverless routes at `/api/*`, so you only need one Vercel project.
 
 1. Import [github.com/kaimai-apex/wordsarena](https://github.com/kaimai-apex/wordsarena) in Vercel.
-2. Set **Root Directory** to `apps/web` (or use the included `apps/web/vercel.json`).
+2. Set **Root Directory** to `apps/web` and enable **Include source files outside of the Root Directory** (required for the pnpm workspace packages).
 3. Add environment variables:
    - `DATABASE_URL` — Postgres (Neon, Vercel Postgres, or Supabase). Run `pnpm db:push` against it once.
    - `SESSION_SECRET` — random string, 32+ characters.
