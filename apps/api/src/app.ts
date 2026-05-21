@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { eq, desc, and, sql } from 'drizzle-orm';
-import { createDb, users, sessions, games, dailyResults, ratings, tournaments, tournamentEntries, magicLinks } from '@lexiform/db';
+import { users, sessions, games, dailyResults, ratings, tournaments, tournamentEntries, magicLinks } from '@lexiform/db';
 import {
   createGame as createEngineGame,
   replayMoves,
@@ -15,14 +15,24 @@ import {
   MagicLinkRequestSchema,
   MagicLinkVerifySchema,
   UpgradeAnonymousSchema,
+  isSupabaseConfigured,
 } from '@lexiform/shared';
 import { generateIdFromEntropySize } from 'lucia';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { getWebUrl } from './web-url.js';
-
-const db = createDb(process.env.DATABASE_URL ?? 'postgresql://lexiform:lexiform@localhost:5432/lexiform');
+import {
+  getBearerToken,
+  getSessionUser,
+  getAuthenticatedUser,
+  getUserRatings,
+  publicUserProfile,
+  db,
+} from './auth-request.js';
+import { getSupabaseUserFromAccessToken } from './supabase.js';
+import { syncSupabaseUser } from './auth-sync.js';
+import { signWsToken } from '@lexiform/shared';
 
 loadDictionarySync();
 
@@ -33,13 +43,22 @@ app.use('*', cors({
   credentials: true,
 }));
 
-async function getSessionUser(c: { req: { header: (n: string) => string | undefined } }) {
-  const sessionId = getCookie(c as never, 'lexiform_session');
-  if (!sessionId) return null;
-  const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
-  if (!session || session.expiresAt < new Date()) return null;
-  const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-  return user ?? null;
+function createLexiformSession(c: Parameters<typeof setCookie>[0], userId: string) {
+  const sessionId = generateIdFromEntropySize(32);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  return db
+    .delete(sessions)
+    .where(eq(sessions.userId, userId))
+    .then(() => db.insert(sessions).values({ id: sessionId, userId, expiresAt }))
+    .then(() => {
+      setCookie(c, 'lexiform_session', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Lax',
+        path: '/',
+        maxAge: 30 * 24 * 60 * 60,
+      });
+    });
 }
 
 function randomUsername(): string {
@@ -81,17 +100,37 @@ app.post('/auth/signup-anonymous', async (c) => {
 });
 
 app.get('/auth/me', async (c) => {
-  const user = await getSessionUser(c);
+  const user = await getAuthenticatedUser(c);
   if (!user) return c.json({ user: null });
-  return c.json({
-    user: {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      isAnonymous: user.isAnonymous,
-      emailVerified: user.emailVerified,
-    },
-  });
+  const userRatings = await getUserRatings(user.id);
+  return c.json({ user: publicUserProfile(user, userRatings) });
+});
+
+app.post('/auth/sync', async (c) => {
+  if (!isSupabaseConfigured()) {
+    return c.json({ error: 'Supabase is not configured' }, 503);
+  }
+
+  const accessToken = getBearerToken(c);
+  if (!accessToken) return c.json({ error: 'Missing Bearer token' }, 401);
+
+  const supabaseUser = await getSupabaseUserFromAccessToken(accessToken);
+  if (!supabaseUser) return c.json({ error: 'Invalid or expired token' }, 401);
+
+  const { user, ratings: userRatings } = await syncSupabaseUser(db, supabaseUser);
+  await createLexiformSession(c, user.id);
+
+  return c.json({ user: publicUserProfile(user, userRatings) });
+});
+
+app.get('/auth/ws-token', async (c) => {
+  const user = await getAuthenticatedUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const token = await signWsToken(user.id, user.username);
+  if (!token) return c.json({ error: 'WS JWT secret is not configured' }, 503);
+
+  return c.json({ token, expiresIn: 300 });
 });
 
 app.post('/auth/logout', async (c) => {

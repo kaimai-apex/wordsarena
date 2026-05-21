@@ -11,6 +11,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "push": "drizzle-kit push",
+    "check": "node scripts/check-connection.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

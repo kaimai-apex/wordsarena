@@ -1,7 +1,10 @@
+import './load-env.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'node:http';
-import { eq, sql } from 'drizzle-orm';
+import { URL } from 'node:url';
+import { eq, and, sql } from 'drizzle-orm';
 import { createDb, sessions, users, games, ratings } from '@lexiform/db';
+import { verifyWsToken } from '@lexiform/shared';
 import {
   createGame,
   applyMove,
@@ -33,6 +36,13 @@ function parseCookieHeader(header: string | undefined): Record<string, string> {
 
 const db = createDb(process.env.DATABASE_URL ?? 'postgresql://lexiform:lexiform@localhost:5432/lexiform');
 loadDictionarySync();
+
+interface AuthUser {
+  id: string;
+  username: string;
+  isAnonymous: boolean;
+  supabaseUserId: string | null;
+}
 
 interface PoolEntry {
   userId: string;
@@ -100,7 +110,7 @@ function broadcastGame(game: LiveGame, msg: WSServerMessage) {
   for (const ws of game.spectators) send(ws, msg);
 }
 
-async function authenticate(cookieHeader: string | undefined): Promise<{ id: string; username: string } | null> {
+async function authenticateCookie(cookieHeader: string | undefined): Promise<AuthUser | null> {
   if (!cookieHeader) return null;
   const cookies = parseCookieHeader(cookieHeader);
   const sessionId = cookies.lexiform_session;
@@ -108,11 +118,50 @@ async function authenticate(cookieHeader: string | undefined): Promise<{ id: str
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
   if (!session || session.expiresAt < new Date()) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-  return user ? { id: user.id, username: user.username } : null;
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    isAnonymous: user.isAnonymous,
+    supabaseUserId: user.supabaseUserId,
+  };
+}
+
+async function authenticateWsToken(token: string): Promise<AuthUser | null> {
+  const payload = await verifyWsToken(token);
+  if (!payload) return null;
+  const [user] = await db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    isAnonymous: user.isAnonymous,
+    supabaseUserId: user.supabaseUserId,
+  };
+}
+
+async function authenticateConnection(reqUrl: string | undefined, cookieHeader: string | undefined): Promise<AuthUser | null> {
+  if (reqUrl) {
+    try {
+      const parsed = new URL(reqUrl, 'http://localhost');
+      const token = parsed.searchParams.get('token');
+      if (token) {
+        const fromToken = await authenticateWsToken(token);
+        if (fromToken) return fromToken;
+      }
+    } catch {
+      // ignore malformed URL
+    }
+  }
+  return authenticateCookie(cookieHeader);
 }
 
 async function getUserRating(userId: string, tc: TimeControl) {
-  const [r] = await db.select().from(ratings).where(eq(ratings.userId, userId)).limit(1);
+  const [r] = await db
+    .select()
+    .from(ratings)
+    .where(and(eq(ratings.userId, userId), eq(ratings.timeControl, tc)))
+    .limit(1);
   if (r) return { rating: r.rating, rd: r.rd, volatility: r.volatility };
   return newRating();
 }
@@ -209,13 +258,13 @@ function runMatchmaker() {
   }
 }
 
-setInterval(runMatchmaker, 1000);
+const matchmakerInterval = setInterval(runMatchmaker, 1000);
 
-setInterval(() => {
+const tickInterval = setInterval(() => {
   const now = Date.now();
   for (const game of liveGames.values()) {
     if (game.status !== 'live') continue;
-    const { state, events } = tick(game.state, now);
+    const { state } = tick(game.state, now);
     if (state.isOver) {
       game.state = state;
       game.status = 'finished';
@@ -303,7 +352,7 @@ const server = createServer();
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', async (ws, req) => {
-  const user = await authenticate(req.headers.cookie);
+  const user = await authenticateConnection(req.url, req.headers.cookie);
   if (!user) {
     ws.close(4001, 'Unauthorized');
     return;
@@ -328,6 +377,14 @@ wss.on('connection', async (ws, req) => {
       }
 
       if (msg.type === 'queue:join') {
+        if (msg.payload.isRated && (!user.supabaseUserId || user.isAnonymous)) {
+          send(ws, {
+            type: 'error',
+            payload: { code: 'auth_required', message: 'Sign in with Google for rated games' },
+          });
+          return;
+        }
+
         const rating = await getUserRating(user.id, msg.payload.timeControl);
         const key = poolKey(msg.payload.timeControl, msg.payload.isRated);
         const entry: PoolEntry = {
@@ -459,3 +516,25 @@ wss.on('connection', async (ws, req) => {
 
 const port = Number(process.env.PORT ?? 3002);
 server.listen(port, () => console.log(`Realtime WS on ws://localhost:${port}`));
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} in use — run pnpm dev:stop first`);
+    process.exit(1);
+  }
+  throw err;
+});
+
+function shutdown(signal: string) {
+  console.log(`\nRealtime shutting down (${signal})…`);
+  clearInterval(matchmakerInterval);
+  clearInterval(tickInterval);
+  for (const ws of wss.clients) {
+    ws.close(1001, 'Server shutting down');
+  }
+  wss.close();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 2000).unref();
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));

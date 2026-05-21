@@ -2,7 +2,9 @@
   "name": "lexiform",
   "private": true,
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
+    "dev:stop": "lsof -tiTCP:3000 -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null; lsof -tiTCP:3001 -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null; lsof -tiTCP:3002 -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null; true",
+    "dev": "pnpm dev:stop && pnpm --parallel --filter @lexiform/web --filter @lexiform/realtime dev",
+    "dev:api": "pnpm --filter @lexiform/api dev",
     "build": "pnpm build:dictionary && pnpm -r build",
     "build:vercel": "pnpm build:dictionary && pnpm --filter \"@lexiform/web...\" build",
     "build:dictionary": "pnpm --filter @lexiform/engine build:dictionary",
@@ -11,7 +13,9 @@
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @lexiform/db generate",
     "db:migrate": "pnpm --filter @lexiform/db migrate",
-    "db:push": "pnpm --filter @lexiform/db push"
+    "db:push": "pnpm --filter @lexiform/db push",
+    "db:check": "pnpm --filter @lexiform/db check",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "engines": {
     "node": ">=20"

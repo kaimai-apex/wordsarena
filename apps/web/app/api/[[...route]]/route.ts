@@ -1,7 +1,10 @@
+import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
-import { app } from '@lexiform/api/app';
+import { app as coreApp } from '@lexiform/api/app';
 
 export const runtime = 'nodejs';
+
+const app = new Hono().route('/api', coreApp);
 
 const handler = handle(app);
 

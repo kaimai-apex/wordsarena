@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+export const AuthProviderSchema = z.enum(['google', 'email', 'anonymous']);
 export const TimeControlSchema = z.enum(['bullet', 'blitz', 'rapid', 'long']);
 export const GameModeSchema = z.enum(['daily', 'zen', 'blitz_solo', 'vs']);
 export const GridPositionSchema = z.object({ row: z.number().int().min(0).max(8), col: z.number().int().min(0).max(8) });
@@ -65,9 +66,15 @@ export const envSchema = z.object({
   REALTIME_URL: z.string().url().optional(),
   WEB_URL: z.string().url().optional(),
   RESEND_API_KEY: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  WS_JWT_SECRET: z.string().min(32).optional(),
+  NEXT_PUBLIC_REALTIME_URL: z.string().url().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 
 export type TimeControl = z.infer<typeof TimeControlSchema>;
+export type AuthProvider = z.infer<typeof AuthProviderSchema>;
 export type GameMode = z.infer<typeof GameModeSchema>;
 export type Move = z.infer<typeof MoveSchema>;
