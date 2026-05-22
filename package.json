@@ -9,12 +9,16 @@
     "build:vercel": "pnpm build:dictionary && pnpm --filter \"@lexiform/web...\" build",
     "build:dictionary": "pnpm --filter @lexiform/engine build:dictionary",
     "test": "pnpm -r test",
+    "test:all": "node scripts/test-all.mjs",
+    "stress": "node scripts/stress-test.mjs",
+    "ws:smoke": "node scripts/ws-smoke-test.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @lexiform/db generate",
     "db:migrate": "pnpm --filter @lexiform/db migrate",
     "db:push": "pnpm --filter @lexiform/db push",
     "db:check": "pnpm --filter @lexiform/db check",
+    "db:seed": "pnpm --filter @lexiform/db seed",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "engines": {

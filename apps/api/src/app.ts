@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { eq, desc, and, sql } from 'drizzle-orm';
-import { users, sessions, games, dailyResults, ratings, tournaments, tournamentEntries, magicLinks } from '@lexiform/db';
+import { users, sessions, games, dailyResults, ratings, magicLinks } from '@lexiform/db';
 import {
   createGame as createEngineGame,
   replayMoves,
@@ -18,9 +18,6 @@ import {
   isSupabaseConfigured,
 } from '@lexiform/shared';
 import { generateIdFromEntropySize } from 'lucia';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 import { getWebUrl } from './web-url.js';
 import {
   getBearerToken,
@@ -32,6 +29,7 @@ import {
 } from './auth-request.js';
 import { getSupabaseUserFromAccessToken } from './supabase.js';
 import { syncSupabaseUser } from './auth-sync.js';
+import { platformApp } from './routes/platform.js';
 import { signWsToken } from '@lexiform/shared';
 
 loadDictionarySync();
@@ -65,17 +63,11 @@ function randomUsername(): string {
   return `player_${generateIdFromEntropySize(4)}`;
 }
 
-function engineDataPath(filename: string): string {
-  const require = createRequire(import.meta.url);
-  const engineRoot = dirname(require.resolve('@lexiform/engine/package.json'));
-  return join(engineRoot, 'data', filename);
-}
-
 app.get('/health', (c) => c.json({ ok: true }));
 
 app.get('/dictionary', (c) => {
-  const text = readFileSync(engineDataPath('dictionary.txt'), 'utf-8');
-  return c.text(text);
+  const dict = loadDictionarySync();
+  return c.json({ ok: true, wordCount: dict.size });
 });
 
 app.post('/auth/signup-anonymous', async (c) => {
@@ -343,29 +335,4 @@ app.get('/lobby/live', async (c) => {
   return c.json({ games: live });
 });
 
-app.get('/tournaments', async (c) => {
-  const list = await db.select().from(tournaments).orderBy(desc(tournaments.startsAt)).limit(20);
-  return c.json({ tournaments: list });
-});
-
-app.get('/tournaments/:id', async (c) => {
-  const [tournament] = await db.select().from(tournaments).where(eq(tournaments.id, c.req.param('id'))).limit(1);
-  if (!tournament) return c.json({ error: 'Not found' }, 404);
-  const entries = await db
-    .select({ username: users.username, score: tournamentEntries.score })
-    .from(tournamentEntries)
-    .innerJoin(users, eq(tournamentEntries.userId, users.id))
-    .where(eq(tournamentEntries.tournamentId, tournament.id))
-    .orderBy(desc(tournamentEntries.score));
-  return c.json({ tournament, leaderboard: entries });
-});
-
-app.post('/tournaments/:id/join', async (c) => {
-  const user = await getSessionUser(c);
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  await db.insert(tournamentEntries).values({
-    tournamentId: c.req.param('id'),
-    userId: user.id,
-  }).onConflictDoNothing();
-  return c.json({ ok: true });
-});
+app.route('/', platformApp);

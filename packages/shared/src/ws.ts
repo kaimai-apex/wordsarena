@@ -16,6 +16,7 @@ export const WSMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('game:resign'), payload: z.object({ gameId: z.string().uuid() }) }),
   z.object({ type: z.literal('game:spectate'), payload: z.object({ gameId: z.string().uuid() }) }),
+  z.object({ type: z.literal('game:join'), payload: z.object({ gameId: z.string().uuid() }) }),
   z.object({ type: z.literal('ping'), payload: z.object({}) }),
 ]);
 
@@ -63,6 +64,25 @@ export const WSServerMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('game:aborted'),
     payload: z.object({ gameId: z.string().uuid(), reason: z.string() }),
+  }),
+  z.object({
+    type: z.literal('game:joined'),
+    payload: z.object({
+      gameId: z.string().uuid(),
+      status: z.enum(['waitingForReady', 'live', 'finished', 'aborted']),
+      timeControl: z.enum(['bullet', 'blitz', 'rapid', 'long']),
+      isRated: z.boolean(),
+      player1Id: z.string().uuid(),
+      player2Id: z.string().uuid(),
+      player1Username: z.string(),
+      player2Username: z.string(),
+      readyCount: z.number(),
+      state: z.record(z.unknown()).nullable(),
+    }),
+  }),
+  z.object({
+    type: z.literal('game:countdown'),
+    payload: z.object({ gameId: z.string().uuid(), secondsLeft: z.number() }),
   }),
   z.object({ type: z.literal('error'), payload: z.object({ code: z.string(), message: z.string() }) }),
   z.object({ type: z.literal('pong'), payload: z.object({}) }),

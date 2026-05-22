@@ -674,15 +674,15 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
         : null}
 
       <div className="relative w-full max-w-[540px]">
-        <div className="mx-auto flex max-w-md items-end justify-between gap-3 rounded-lg bg-white px-5 py-3 shadow-md">
+        <div className="mx-auto flex max-w-md items-end justify-between gap-3 rounded-lg border border-neutral-200 bg-white px-5 py-3 shadow-md">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+            <p className="text-xs font-bold uppercase tracking-wide text-neutral-600">
               Words: {wordCount}
             </p>
-            <p className="font-mono text-4xl font-black tracking-tight text-ink">
+            <p className="font-mono text-4xl font-black tracking-tight text-neutral-900">
               {score.toString().padStart(4, '0')}
             </p>
-            <p className="text-[10px] font-semibold uppercase text-ink-soft">Score</p>
+            <p className="text-[10px] font-semibold uppercase text-neutral-500">Score</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             {timeLeft !== null && (
@@ -747,8 +747,8 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
                 key={i}
                 className="rounded-xl bg-white px-5 py-2 text-center shadow-md ring-1 ring-teal/20"
               >
-                <span className="text-xl font-black text-ink">{displayWord(c.word)}</span>
-                <span className="ml-2 font-mono text-lg font-bold text-teal">+{c.points}</span>
+                <span className="text-xl font-black text-neutral-900">{displayWord(c.word)}</span>
+                <span className="ml-2 font-mono text-lg font-bold text-teal-700">+{c.points}</span>
               </div>
             ))}
           </motion.div>
@@ -760,16 +760,16 @@ export function GameBoard({ mode, playerId, onGameOver, onNewGame }: GameBoardPr
       </p>
 
       {words.length > 0 && (
-        <div className="w-full max-w-[540px] rounded-xl bg-white/80 px-4 py-3 shadow-sm">
-          <p className="mb-2 text-xs font-bold uppercase text-ink-soft">Words found</p>
+        <div className="w-full max-w-[540px] rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 shadow-sm">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-700">Words found</p>
           <div className="flex flex-wrap gap-2">
             {words.map((w, i) => (
               <span
                 key={i}
-                className="rounded-full bg-[#E8C49A]/60 px-3 py-1 text-sm font-bold text-ink"
+                className="rounded-full border border-amber-200/80 bg-amber-100 px-3 py-1 text-sm font-bold text-neutral-900"
               >
                 {displayWord(w.word)}{' '}
-                <span className="font-mono text-teal">+{w.points}</span>
+                <span className="font-mono text-teal-700">+{w.points}</span>
               </span>
             ))}
           </div>

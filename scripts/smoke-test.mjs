@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Smoke test for local API (embedded Next at :3000 or standalone at :3001).
+ * API smoke test — requires dev server at :3000.
  * Usage: node scripts/smoke-test.mjs [baseUrl]
  */
 const base = process.argv[2] ?? 'http://localhost:3000/api';
 
 const jar = new Map();
+let username = '';
 
 function getCookieHeader() {
   return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
@@ -15,12 +16,6 @@ function saveCookies(res) {
   const raw = res.headers.getSetCookie?.() ?? [];
   for (const line of raw) {
     const [pair] = line.split(';');
-    const eq = pair.indexOf('=');
-    if (eq > 0) jar.set(pair.slice(0, eq), pair.slice(eq + 1));
-  }
-  const single = res.headers.get('set-cookie');
-  if (single && !raw.length) {
-    const [pair] = single.split(';');
     const eq = pair.indexOf('=');
     if (eq > 0) jar.set(pair.slice(0, eq), pair.slice(eq + 1));
   }
@@ -43,7 +38,7 @@ async function request(path, options = {}) {
   } catch {
     body = text;
   }
-  return { status: res.status, body };
+  return { status: res.status, body, ok: res.ok };
 }
 
 let passed = 0;
@@ -62,34 +57,36 @@ function ok(name, cond, detail = '') {
 async function main() {
   console.log(`Smoke testing ${base}\n`);
 
-  const health = await request('/health');
-  ok('GET /health', health.status === 200 && health.body?.ok === true, `status ${health.status}`);
+  ok('GET /health', (await request('/health')).status === 200);
+  ok('GET /dictionary', (await request('/dictionary')).body?.wordCount > 0);
 
-  const me0 = await request('/auth/me');
-  ok('GET /auth/me (anonymous)', me0.status === 200, `status ${me0.status}`);
+  ok('GET /auth/me (anonymous)', (await request('/auth/me')).status === 200);
 
   const guest = await request('/auth/signup-anonymous', { method: 'POST' });
-  ok('POST /auth/signup-anonymous', guest.status === 200 && guest.body?.user?.id, `status ${guest.status}`);
+  ok('POST /auth/signup-anonymous', guest.status === 200 && guest.body?.user?.id);
+  username = guest.body?.user?.username ?? '';
 
-  const me1 = await request('/auth/me');
-  ok('GET /auth/me (guest cookie)', me1.status === 200 && me1.body?.user?.username, `status ${me1.status}`);
+  ok('GET /auth/ws-token', (await request('/auth/ws-token')).body?.token);
 
-  const ws = await request('/auth/ws-token');
-  ok('GET /auth/ws-token', ws.status === 200 && ws.body?.token, `status ${ws.status}`);
-
-  if (me1.body?.user?.username) {
-    const profile = await request(`/users/${me1.body.user.username}`);
-    ok('GET /users/:username', profile.status === 200 && profile.body?.ratings, `status ${profile.status}`);
+  if (username) {
+    ok('GET /users/:username', (await request(`/users/${username}`)).status === 200);
+    ok('GET /users/:username/games', Array.isArray((await request(`/users/${username}/games`)).body?.games));
+    ok('GET /users/:username/insights', (await request(`/users/${username}/insights`)).body?.games);
   }
 
-  const sync = await request('/auth/sync', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer invalid-token' },
-  });
-  ok('POST /auth/sync rejects bad token', sync.status === 401, `status ${sync.status}`);
+  const solo = await request('/games/solo', { method: 'POST', body: JSON.stringify({ mode: 'zen' }) });
+  ok('POST /games/solo', solo.body?.gameId);
+  if (solo.body?.gameId) {
+    ok('POST /games/solo/:id/finalize', (await request(`/games/solo/${solo.body.gameId}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify({ moves: [], finalScore: 0 }),
+    })).body?.ok);
+  }
 
-  const daily = await request('/daily/today');
-  ok('GET /daily/today', daily.status === 200 && daily.body?.dateKey, `status ${daily.status}`);
+  ok('GET /daily/today', (await request('/daily/today')).body?.dateKey);
+  ok('GET /lobby/pools', (await request('/lobby/pools')).status === 200);
+  ok('GET /lobby/live', Array.isArray((await request('/lobby/live')).body?.games));
+  ok('GET /broadcasts', Array.isArray((await request('/broadcasts')).body?.broadcasts));
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

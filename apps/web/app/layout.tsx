@@ -2,12 +2,12 @@ import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
-import { Nav } from '@/components/nav';
+import { SiteShell } from '@/components/layout/site-shell';
 
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ['400', '500', '600', '700'],
 });
 
 const jetbrains = JetBrains_Mono({
@@ -17,11 +17,12 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'WordsArena — Word puzzles, rated & wild',
-  description: 'Free word block puzzles. Daily challenges, zen mode, and head-to-head multiplayer.',
+  title: 'WordsArena — Free word games online',
+  description:
+    'Free online word games — rated and casual multiplayer with Glicko-2 ratings.',
   openGraph: {
     title: 'WordsArena',
-    description: 'Tropical word puzzle battles in your browser',
+    description: 'Free online word games — rated multiplayer on a shared board.',
     type: 'website',
   },
 };
@@ -36,8 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans">
         <Providers>
-          <Nav />
-          <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+          <SiteShell>{children}</SiteShell>
         </Providers>
       </body>
     </html>

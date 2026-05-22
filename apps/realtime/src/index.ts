@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { URL } from 'node:url';
 import { eq, and, sql } from 'drizzle-orm';
 import { createDb, sessions, users, games, ratings } from '@lexiform/db';
-import { verifyWsToken } from '@lexiform/shared';
+import { verifyWsToken, bandWidth, rdsCompatible, matchPoolKey } from '@lexiform/shared';
 import {
   createGame,
   applyMove,
@@ -60,6 +60,8 @@ interface LiveGame {
   state: GameState;
   player1Id: string;
   player2Id: string;
+  player1Username: string;
+  player2Username: string;
   timeControl: TimeControl;
   isRated: boolean;
   moves: Move[];
@@ -74,27 +76,8 @@ const pools = new Map<string, PoolEntry[]>();
 const liveGames = new Map<string, LiveGame>();
 const userSockets = new Map<string, WebSocket>();
 
-function poolKey(tc: TimeControl, rated: boolean) {
-  return `${tc}:${rated ? 'rated' : 'casual'}`;
-}
-
 function send(ws: WebSocket, msg: WSServerMessage) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-}
-
-function bandWidth(seconds: number, isRated: boolean): number {
-  let band: number;
-  if (seconds < 10) band = 50;
-  else if (seconds < 20) band = 100;
-  else if (seconds < 40) band = 200;
-  else if (seconds < 60) band = 400;
-  else band = Infinity;
-  return isRated ? band : band * 2;
-}
-
-function rdsCompatible(p1: PoolEntry, p2: PoolEntry, waitedSec: number): boolean {
-  if (waitedSec >= 30) return true;
-  return Math.abs(p1.rd - p2.rd) < 200;
 }
 
 function serializeState(state: GameState) {
@@ -108,6 +91,40 @@ function serializeState(state: GameState) {
 function broadcastGame(game: LiveGame, msg: WSServerMessage) {
   for (const ws of game.sockets.values()) send(ws, msg);
   for (const ws of game.spectators) send(ws, msg);
+}
+
+function sendGameJoined(ws: WebSocket, game: LiveGame) {
+  send(ws, {
+    type: 'game:joined',
+    payload: {
+      gameId: game.id,
+      status: game.status,
+      timeControl: game.timeControl,
+      isRated: game.isRated,
+      player1Id: game.player1Id,
+      player2Id: game.player2Id,
+      player1Username: game.player1Username,
+      player2Username: game.player2Username,
+      readyCount: game.ready.size,
+      state: game.status !== 'aborted' ? serializeState(game.state) : null,
+    },
+  });
+}
+
+function startCountdown(game: LiveGame) {
+  let secondsLeft = 5;
+  const tickCountdown = () => {
+    if (game.status !== 'live' || game.state.startedAt > 0) return;
+    broadcastGame(game, {
+      type: 'game:countdown',
+      payload: { gameId: game.id, secondsLeft },
+    });
+    secondsLeft -= 1;
+    if (secondsLeft >= 0) {
+      setTimeout(tickCountdown, 1000);
+    }
+  };
+  tickCountdown();
 }
 
 async function authenticateCookie(cookieHeader: string | undefined): Promise<AuthUser | null> {
@@ -194,6 +211,8 @@ async function createMultiplayerGame(p1: PoolEntry, p2: PoolEntry) {
     state,
     player1Id: p1.userId,
     player2Id: p2.userId,
+    player1Username: p1.username,
+    player2Username: p2.username,
     timeControl: p1.timeControl,
     isRated: p1.isRated,
     moves: [],
@@ -319,6 +338,7 @@ async function finishGame(game: LiveGame) {
             rating: nr.rating,
             rd: nr.rd,
             volatility: nr.volatility,
+            gamesPlayed: sql`${ratings.gamesPlayed} + 1`,
             lastPlayedAt: new Date(),
           },
         });
@@ -346,6 +366,8 @@ async function finishGame(game: LiveGame) {
       ratingChanges: game.isRated ? ratingChanges : undefined,
     },
   });
+
+  liveGames.delete(game.id);
 }
 
 const server = createServer();
@@ -386,7 +408,7 @@ wss.on('connection', async (ws, req) => {
         }
 
         const rating = await getUserRating(user.id, msg.payload.timeControl);
-        const key = poolKey(msg.payload.timeControl, msg.payload.isRated);
+        const key = matchPoolKey(msg.payload.timeControl, msg.payload.isRated);
         const entry: PoolEntry = {
           userId: user.id,
           username: user.username,
@@ -411,15 +433,40 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
+      if (msg.type === 'game:join') {
+        const game = liveGames.get(msg.payload.gameId);
+        if (!game) {
+          send(ws, {
+            type: 'error',
+            payload: { code: 'game_not_found', message: 'Game not found or expired' },
+          });
+          return;
+        }
+        const isPlayer = user.id === game.player1Id || user.id === game.player2Id;
+        if (isPlayer) {
+          game.sockets.set(user.id, ws);
+          const timer = game.disconnectTimers.get(user.id);
+          if (timer) {
+            clearTimeout(timer);
+            game.disconnectTimers.delete(user.id);
+          }
+        } else {
+          game.spectators.add(ws);
+        }
+        sendGameJoined(ws, game);
+        return;
+      }
+
       if (msg.type === 'game:ready') {
         const game = liveGames.get(msg.payload.gameId);
         if (!game) return;
         game.ready.add(user.id);
         if (game.ready.size >= 2 && game.status === 'waitingForReady') {
           game.status = 'live';
-          game.state = { ...game.state, startedAt: Date.now() };
+          startCountdown(game);
           await db.update(games).set({ status: 'live', startedAt: new Date() }).where(eq(games.id, game.id));
           setTimeout(() => {
+            game.state = { ...game.state, startedAt: Date.now() };
             broadcastGame(game, {
               type: 'game:state',
               payload: { gameId: game.id, state: serializeState(game.state), role: 'player' },
@@ -510,6 +557,23 @@ wss.on('connection', async (ws, req) => {
     userSockets.delete(user.id);
     for (const [key, pool] of pools.entries()) {
       pools.set(key, pool.filter((e) => e.userId !== user.id));
+    }
+    for (const game of liveGames.values()) {
+      if (game.player1Id !== user.id && game.player2Id !== user.id) continue;
+      if (game.status === 'finished' || game.status === 'aborted') continue;
+      game.sockets.delete(user.id);
+      if (!game.disconnectTimers.has(user.id)) {
+        const timer = setTimeout(() => {
+          game.disconnectTimers.delete(user.id);
+          if (game.status === 'live') {
+            const winnerId = user.id === game.player1Id ? game.player2Id : game.player1Id;
+            game.state = resign(game.state, user.id, Date.now());
+            game.status = 'finished';
+            void finishGame(game);
+          }
+        }, 30_000);
+        game.disconnectTimers.set(user.id, timer);
+      }
     }
   });
 });

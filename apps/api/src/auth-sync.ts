@@ -4,21 +4,18 @@ import { generateIdFromEntropySize } from 'lucia';
 import type { Database } from '@lexiform/db';
 import { users, ratings } from '@lexiform/db';
 import { newRating } from '@lexiform/rating';
-import type { AuthProvider } from '@lexiform/shared';
+import { deriveUsername, type AuthProvider } from '@lexiform/shared';
 
 const TIME_CONTROLS = ['bullet', 'blitz', 'rapid', 'long'] as const;
 
 function baseUsername(supabaseUser: SupabaseUser): string {
   const meta = supabaseUser.user_metadata as Record<string, unknown>;
-  const fromMeta =
-    (typeof meta.full_name === 'string' && meta.full_name) ||
-    (typeof meta.name === 'string' && meta.name) ||
-    (typeof meta.user_name === 'string' && meta.user_name) ||
-    '';
-  const fromEmail = supabaseUser.email?.split('@')[0] ?? '';
-  const raw = (fromMeta || fromEmail || 'player').toLowerCase();
-  const cleaned = raw.replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  return cleaned.slice(0, 20) || 'player';
+  return deriveUsername({
+    fullName: typeof meta.full_name === 'string' ? meta.full_name : null,
+    name: typeof meta.name === 'string' ? meta.name : null,
+    userName: typeof meta.user_name === 'string' ? meta.user_name : null,
+    email: supabaseUser.email,
+  });
 }
 
 function authProviderFromSupabase(supabaseUser: SupabaseUser): AuthProvider {

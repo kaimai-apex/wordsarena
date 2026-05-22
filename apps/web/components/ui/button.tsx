@@ -10,6 +10,7 @@ const buttonVariants = cva(
         secondary: 'bg-teal/15 text-teal border-2 border-teal/30 hover:bg-teal/25',
         ghost: 'hover:bg-accent-soft/50 text-ink-soft hover:text-ink',
         destructive: 'bg-danger text-white hover:bg-danger/90',
+        danger: 'bg-danger text-white hover:bg-danger/90',
         ocean: 'bg-gradient-ocean text-white shadow-bubble',
       },
       size: {

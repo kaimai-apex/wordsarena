@@ -19,7 +19,11 @@ export const users = pgTable('users', {
   email: text('email').unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   avatarUrl: text('avatar_url'),
-  authProvider: text('auth_provider'), // 'google' | 'email' | 'anonymous'
+  authProvider: text('auth_provider'),
+  bio: text('bio'),
+  title: text('title'),
+  country: text('country'),
+  isModerator: boolean('is_moderator').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   isAnonymous: boolean('is_anonymous').default(false).notNull(),
   isBanned: boolean('is_banned').default(false).notNull(),
@@ -97,34 +101,15 @@ export const dailyResults = pgTable(
   ],
 );
 
-export const tournaments = pgTable('tournaments', {
+export const broadcasts = pgTable('broadcasts', {
   id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  format: text('format').notNull(),
-  timeControl: text('time_control').notNull(),
-  isRated: boolean('is_rated').default(true).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  featuredGameId: uuid('tournament_id').references(() => games.id),
+  isLive: boolean('is_live').default(false).notNull(),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-  durationMinutes: integer('duration_minutes').notNull(),
-  rounds: integer('rounds'),
-  status: text('status').notNull(),
-  createdBy: uuid('created_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
-
-export const tournamentEntries = pgTable(
-  'tournament_entries',
-  {
-    tournamentId: uuid('tournament_id')
-      .notNull()
-      .references(() => tournaments.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    score: real('score').notNull().default(0),
-    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.tournamentId, t.userId] })],
-);
 
 export const magicLinks = pgTable('magic_links', {
   token: text('token').primaryKey(),
@@ -136,4 +121,3 @@ export const magicLinks = pgTable('magic_links', {
 export type User = typeof users.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type DailyResult = typeof dailyResults.$inferSelect;
-export type Tournament = typeof tournaments.$inferSelect;
